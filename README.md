@@ -163,12 +163,13 @@ For ClojureScript, require `contentql.core` and `cljs.core.async`:
             [cljs.core.async :refer [<!]]))
 ```
 
-Then create a Contentful connection with `contentql/create-connection`. It receives four fields `:space-id`, `:access-token`, `:mode` and `:environment`. Use the space id and access token found on your Contentful dashboard. `:mode` should be either `:live` (for production environment) or `:preview` for (guess what, preview mode). Lastly, `:environment` should be the environment you want to fetch data for.
+Then create a Contentful connection with `contentql/create-connection`. It receives five fields `:space-id`, `:access-token`, `:mode`, `:recursion-limit` and `:environment`. Use the space id and access token found on your Contentful dashboard. `:mode` should be either `:live` (for production environment) or `:preview` for (guess what, preview mode). `:recursion-limit` to make sure any given recursion stops at a certain point and does not throw a StackOverflow error (if no value is given, the default value is set to 10 loops).Lastly, `:environment` should be the environment you want to fetch data for.
 
 ```clojure
 (def config {:space-id "c3tshf2weg8y"
              :access-token "e87aea51cfd9193df88f5a1d1b842d9a43cc4f2b02366b7c0ead54fb1b0ad6d4"
              :mode :live
+             :recursion-limit 10
              :environment "master"})
 
 (def conn (contentql/create-connection config))

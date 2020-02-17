@@ -12,6 +12,8 @@
                  [goog.math :as math]
                  [cljs.core.async :refer [<!] :as async]])))
 
+(def ^:private include-limit 10)
+
 ;; ------------------------------
 ;; URL field transformations
 ;; ------------------------------
@@ -179,25 +181,24 @@
 
 (defn ^:private transform-collection
   "Returns a modified linked entries list"
-  [node options linked-entries]
-  (transform (assoc options
-               :entries
-               (match-linked-entries node linked-entries)
-               :root false)))
+  [node options linked-entries recursion-limit]
+  (transform (assoc options :entries (match-linked-entries node linked-entries)
+                            :root false)
+             (- recursion-limit 1)))
 
 (defn ^:private reducer
   "This reducer is the core of the recursive transformation. It uses the linked entries
   and linked assets provided as part of the partial injection to create the map tree."
-  [{:keys [linked-entries linked-assets] :as options} accum k v]
+  [{:keys [linked-entries linked-assets] :as options} recursion-limit accum k v]
   (let [new-key (->kebab-case-keyword (name k))]
     (assoc accum new-key
                  (cond
                    ;; TODO Rich text does not return the right data
                    (reduce-map-asset? v) (transform-image v linked-assets)
 
-                   (reduce-map-entry? v) (first (transform-collection (vector v) options linked-entries))
+                   (reduce-map-entry? v) (first (transform-collection (vector v) options linked-entries recursion-limit))
 
-                   (reduce-collection-entry? v) (transform-collection v options linked-entries)
+                   (reduce-collection-entry? v) (transform-collection v options linked-entries recursion-limit)
 
                    (reduce-collection-asset? v) (mapv #(transform-image % linked-assets) v)
 
@@ -205,11 +206,11 @@
 
 (defn ^:private transform-one
   "Returns a map representing one entry of a dataset. See `transform` for more details."
-  [entry options]
-  (when-not (nil? entry)
+  [entry options recursion-limit]
+  (when (and (some? entry) (> recursion-limit 0))
     (merge {:id (-> entry :sys :id)
             :type-name (-> entry :sys :contentType :sys :id)}
-           (reduce-kv (partial reducer options)
+           (reduce-kv (partial reducer options recursion-limit)
                       {}
                       (:fields entry)))))
 
@@ -222,12 +223,13 @@
   The `:root` field indicates whether this node represents the root node of the
   response and the `:info` node carries pagination information."
   [{:keys [root info entries linked-entries linked-assets]
-    :as options}]
-  (let [res (mapv #(transform-one % options) entries)]
+    :as options} recursion-limit]
+  (let [res (mapv #(transform-one % options recursion-limit) entries)
+        filter-res (remove nil? res)]
     (if root
-      {:nodes res
+      {:nodes filter-res
        :info info}
-      res)))
+      filter-res)))
 
 (defn ^:private linked-items->map
   "Transforms a collection of linked Contentful items into a map keyed by the
@@ -280,7 +282,7 @@
   [{:keys [entries-url]} content-type {:keys [params select]}]
   (str entries-url
        "&content_type=" (name content-type)
-       "&include=10"
+       "&include=" include-limit
        (select->url-params select)
        (params->url-params params)))
 
@@ -290,7 +292,8 @@
   (let [total-pages (int (ceil (/ total limit)))
         current-page (- total-pages (int (floor (/ (- total skip) limit))))
         has-next? (> total-pages current-page)
-        has-prev? (> current-page 1)]
+        has-prev? (> current-page 1)
+        item-as-linked-entries (into {} (map (fn [item] [(get-in item [:sys :id]) item]) items))]
     {:root true
      :info {:nodes {:total total}
             :page {:size limit
@@ -302,7 +305,7 @@
                          :next-skip (if has-next? (+ skip limit) skip)
                          :prev-skip (if has-prev? (- skip limit) skip)}}
      :entries items
-     :linked-entries (linked-items->map (:Entry includes))
+     :linked-entries (conj item-as-linked-entries (linked-items->map (:Entry includes)))
      :linked-assets (linked-items->map (:Asset includes))}))
 
 (defn ^:private get-entities
@@ -315,11 +318,12 @@
 
   `:params` - any parameters sent to this fetching of this content-type"
   [conn content-type & opts]
-  (let [url (build-entities-url conn content-type (first opts))]
+  (let [url (build-entities-url conn content-type (first opts))
+        recursion-limit (:recursion-limit conn)]
     (go (let [res (<! (get-json url))]
           (if (instance? Throwable res)
             res
-            (transform (break-payload res)))))))
+            (transform (break-payload res) recursion-limit))))))
 
 ;; ------------------------------
 ;; Query filtering functions
@@ -382,7 +386,7 @@
 (defn create-connection
   "Config is `{:space-id \"xxx\" :access-token \"xxx\" :mode :live :environment \"xxx\"}`
   `:mode` can be `:live` or `:preview`"
-  [{:keys [space-id access-token environment mode]}]
+  [{:keys [space-id access-token environment mode recursion-limit]}]
   (let [base-url (if (= mode :live)
                    "https://cdn.contentful.com"
                    "https://preview.contentful.com")
@@ -396,11 +400,13 @@
                          access-token)
         content-types-url (str space-url
                                "/content_types?access_token="
-                               access-token)]
+                               access-token)
+        recursion-limit (if (some? recursion-limit) recursion-limit include-limit)]
     {:base-url base-url
      :space-url space-url
      :entries-url entries-url
-     :content-types-url content-types-url}))
+     :content-types-url content-types-url
+     :recursion-limit recursion-limit}))
 
 (defn query
   [conn query]

@@ -222,12 +222,13 @@
 
   The `:root` field indicates whether this node represents the root node of the
   response and the `:info` node carries pagination information."
-  [{:keys [root info entries linked-entries linked-assets]
+  [{:keys [root info entries errors linked-entries linked-assets]
     :as options} recursion-limit]
   (let [res (mapv #(transform-one % options recursion-limit) entries)
         filter-res (remove nil? res)]
     (if root
       {:nodes filter-res
+       :errors errors
        :info info}
       filter-res)))
 
@@ -288,7 +289,7 @@
 
 (defn ^:private break-payload
   "Organizes the entries, linked entries and linked assets from Contentful a bit better."
-  [{:keys [total skip limit items includes] :as raw}]
+  [{:keys [total skip limit items errors includes] :as raw}]
   (let [total-pages (int (ceil (/ total limit)))
         current-page (- total-pages (int (floor (/ (- total skip) limit))))
         has-next? (> total-pages current-page)
@@ -305,6 +306,7 @@
                          :next-skip (if has-next? (+ skip limit) skip)
                          :prev-skip (if has-prev? (- skip limit) skip)}}
      :entries items
+     :errors errors
      :linked-entries (conj item-as-linked-entries (linked-items->map (:Entry includes)))
      :linked-assets (linked-items->map (:Asset includes))}))
 
@@ -419,5 +421,6 @@
             (if (instance? Throwable entities)
               (swap! out assoc :exception entities)
               (swap! out assoc dispatch-key {:nodes (-> entities :nodes (filter-query sub-ast))
+                                             :errors (or (-> entities :errors) [])
                                              :info (:info entities)}))))
         (or (:exception @out) @out))))

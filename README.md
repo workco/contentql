@@ -21,6 +21,7 @@ interface.
 * [Query Syntax](#query-syntax)
 * [Usage](#usage)
 * [Pagination](#pagination)
+* [Errors](#errors)
 * [Bugs](#bugs)
 * [Help!](#help)
 
@@ -206,6 +207,18 @@ total universe of entries and the page you are in. This is a typical `:info` map
  :pagination {:cursor 0
               :next-skip 4
               :prev-skip 0}}
+```
+
+## Errors
+
+Errors will appear under a field named `:errors` and can help identify any incoming
+errors from Contentful. Error information can be found under `:error :sys`, with the
+details under `:error :details`. If no errors are found, `:error` will return an empty
+list.
+
+```clojure
+{:errors [{:sys {:id "notResolvable", :type "error"},
+                     :details {:type "Link", :linkType "Entry", :id "[Redacted]"}}]}
 ```
 
 This tells us that there are `33` total nodes in the dataset while the page size is `4`.
